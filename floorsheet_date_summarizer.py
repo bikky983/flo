@@ -93,9 +93,16 @@ class FloorsheetDateSummarizer:
                     buy_amount=('amount', 'sum')
                 ).reset_index()
                 
-                # Add buy data to aggregations
+                # Process sells - group by seller broker and stock symbol
+                sell_data = date_data.groupby(['seller_id', 'seller_name', 'symbol']).agg(
+                    sell_quantity=('quantity', 'sum'),
+                    sell_amount=('amount', 'sum')
+                ).reset_index()
+                
+                # Create a unified broker-stock aggregation
+                # First, add all buy data
                 for _, row in buy_data.iterrows():
-                    key = (row['buyer_id'], row['buyer_name'], row['symbol'])
+                    key = (row['buyer_id'], row['symbol'])  # Using broker_id and symbol as key
                     if key not in broker_stock_aggs:
                         broker_stock_aggs[key] = {
                             'date': date,
@@ -111,15 +118,9 @@ class FloorsheetDateSummarizer:
                         broker_stock_aggs[key]['buy_quantity'] += row['buy_quantity']
                         broker_stock_aggs[key]['buy_amount'] += row['buy_amount']
                 
-                # Process sells - group by seller broker and stock symbol
-                sell_data = date_data.groupby(['seller_id', 'seller_name', 'symbol']).agg(
-                    sell_quantity=('quantity', 'sum'),
-                    sell_amount=('amount', 'sum')
-                ).reset_index()
-                
-                # Add sell data to aggregations
+                # Then add all sell data
                 for _, row in sell_data.iterrows():
-                    key = (row['seller_id'], row['seller_name'], row['symbol'])
+                    key = (row['seller_id'], row['symbol'])  # Using broker_id and symbol as key
                     if key not in broker_stock_aggs:
                         broker_stock_aggs[key] = {
                             'date': date,
