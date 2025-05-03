@@ -347,7 +347,7 @@ class MerolaganiFloorsheetScraper:
             
             # Add buy data to aggregations
             for _, row in buy_data.iterrows():
-                key = (row['buyer_id'], row['buyer_name'], row['symbol'])
+                key = (row['buyer_id'], row['symbol'])  # Using broker_id and symbol as key
                 if key not in broker_stock_aggs:
                     broker_stock_aggs[key] = {
                         'broker_id': row['buyer_id'],
@@ -371,7 +371,7 @@ class MerolaganiFloorsheetScraper:
             
             # Add sell data to aggregations
             for _, row in sell_data.iterrows():
-                key = (row['seller_id'], row['seller_name'], row['symbol'])
+                key = (row['seller_id'], row['symbol'])  # Using broker_id and symbol as key
                 if key not in broker_stock_aggs:
                     broker_stock_aggs[key] = {
                         'broker_id': row['seller_id'],
@@ -426,7 +426,7 @@ class MerolaganiFloorsheetScraper:
                     # Create dictionary for faster lookups
                     existing_records = {}
                     for _, row in existing_df.iterrows():
-                        key = (row['broker_id'], row['broker_name'], row['symbol'])
+                        key = (row['broker_id'], row['symbol'])  # Using broker_id and symbol as key
                         existing_records[key] = row.to_dict()
                     
                     # Merge new data with existing data
@@ -434,7 +434,7 @@ class MerolaganiFloorsheetScraper:
                     
                     # First process all new records
                     for _, row in agg_df.iterrows():
-                        key = (row['broker_id'], row['broker_name'], row['symbol'])
+                        key = (row['broker_id'], row['symbol'])  # Using broker_id and symbol as key
                         record = row.to_dict()
                         
                         if key in existing_records:
