@@ -266,10 +266,10 @@ jobs:
         echo "=============================================="
         echo "PIPELINE EXECUTION SUMMARY"
         echo "=============================================="
-        echo "Download step: ${steps.download-data.outcome}"
-        echo "Date summarization: ${steps.date-summarize.outcome}"
-        echo "Combined summarization: ${steps.combined-summarize.outcome}"
-        echo "File commit: ${steps.commit-files.outcome}"
+        echo "Download step: ${{ steps.download-data.outcome }}"
+        echo "Date summarization: ${{ steps.date-summarize.outcome }}"
+        echo "Combined summarization: ${{ steps.combined-summarize.outcome }}"
+        echo "File commit: ${{ steps.commit-files.outcome }}"
         echo "=============================================="
         
         # List all generated files
