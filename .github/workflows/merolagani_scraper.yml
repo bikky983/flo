@@ -1,0 +1,283 @@
+name: Merolagani Scraper
+
+on:
+  schedule:
+    # Run at 5:00 PM Nepal time (UTC+5:45) which is 11:15 AM UTC
+    - cron: '15 11 * * 0-5'  # Sunday to Friday at 11:15 AM UTC
+  workflow_dispatch:  # Allows manual triggering
+    inputs:
+      scrape_date:
+        description: 'Date to scrape (YYYY-MM-DD format)'
+        required: false
+        type: string
+      max_pages:
+        description: 'Maximum number of pages to scrape (optional)'
+        required: false
+        type: string
+        default: ''
+      process_all:
+        description: 'Process all historical data when summarizing'
+        required: false
+        type: boolean
+        default: false
+      retention_days:
+        description: 'Number of days to retain data (default: 365)'
+        required: false
+        type: number
+        default: 365
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # Increase timeout to 6 hours (maximum allowed)
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      id: checkout
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      id: setup-python
+      if: success()
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      id: install-deps
+      if: success()
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 pandas pyarrow
+        echo "Installed required dependencies"
+    
+    - name: Configure system for better performance
+      id: configure-system
+      if: success()
+      run: |
+        # Make more memory available by disabling unnecessary services
+        sudo systemctl stop snapd snapd.socket snapd.seeded
+        sudo systemctl disable snapd snapd.socket snapd.seeded
+        
+        # Display available system resources
+        free -h
+        nproc
+        
+        # Create output directories and make them writable
+        mkdir -p public
+        chmod -R 777 public
+        echo "System configured for better performance"
+        echo "Output directory created and permissions set"
+    
+    - name: Run floorsheet downloader
+      id: download-data
+      if: success()
+      run: |
+        # Set environment variables to optimize Python memory usage
+        export PYTHONUNBUFFERED=1
+        export PYTHONMALLOC=malloc
+        export MALLOC_TRIM_THRESHOLD_=65536
+        
+        echo "Step 1/3: Downloading raw floorsheet data"
+        
+        # Prepare command with optional parameters
+        CMD="python floorsheet_downloader.py --output public/raw_floorsheet.parquet"
+        
+        # Add date parameter if provided
+        if [ -n "${{ github.event.inputs.scrape_date }}" ]; then
+          CMD="$CMD --date ${{ github.event.inputs.scrape_date }}"
+          echo "Downloading data for date: ${{ github.event.inputs.scrape_date }}"
+        else
+          echo "Downloading latest data"
+        fi
+        
+        # Add max pages parameter if provided
+        if [ -n "${{ github.event.inputs.max_pages }}" ]; then
+          CMD="$CMD --max-pages ${{ github.event.inputs.max_pages }}"
+          echo "Maximum pages set to: ${{ github.event.inputs.max_pages }}"
+        fi
+        
+        # Add retention days parameter if provided
+        if [ -n "${{ github.event.inputs.retention_days }}" ]; then
+          CMD="$CMD --retention-days ${{ github.event.inputs.retention_days }}"
+          echo "Data retention set to: ${{ github.event.inputs.retention_days }} days"
+        else
+          CMD="$CMD --retention-days 365"
+          echo "Data retention set to default: 365 days"
+        fi
+        
+        # Run the command
+        echo "Executing downloader: $CMD"
+        $CMD 2>&1 | tee downloader_output.log
+        
+        # Check if downloading was successful
+        if [ $? -ne 0 ]; then
+          echo "Downloading failed!"
+          exit 1
+        fi
+        
+        # Verify the output file exists
+        if [ ! -f "public/raw_floorsheet.parquet" ]; then
+          echo "Error: Downloaded file not found"
+          exit 1
+        fi
+        
+        echo "Downloading completed successfully"
+    
+    - name: Run date-wise summarizer
+      id: date-summarize
+      if: success() && steps.download-data.outcome == 'success'
+      run: |
+        echo "Step 2/3: Creating date-wise summary"
+        
+        # Verify the input file exists
+        if [ ! -f "public/raw_floorsheet.parquet" ]; then
+          echo "Error: Input file for date summarizer not found"
+          exit 1
+        fi
+        
+        # Prepare date summarizer command
+        CMD="python floorsheet_date_summarizer.py --input public/raw_floorsheet.parquet --output public/date_summarized_floorsheet.parquet"
+        
+        # Add retention days parameter if provided
+        if [ -n "${{ github.event.inputs.retention_days }}" ]; then
+          CMD="$CMD --retention-days ${{ github.event.inputs.retention_days }}"
+          echo "Data retention set to: ${{ github.event.inputs.retention_days }} days"
+        else
+          CMD="$CMD --retention-days 365"
+          echo "Data retention set to default: 365 days"
+        fi
+        
+        # Run the date summarizer
+        echo "Executing date summarizer: $CMD"
+        $CMD 2>&1 | tee date_summarizer_output.log
+        
+        # Check if date summarization was successful
+        if [ $? -ne 0 ]; then
+          echo "Date summarization failed!"
+          exit 1
+        fi
+        
+        # Verify the output file exists
+        if [ ! -f "public/date_summarized_floorsheet.parquet" ]; then
+          echo "Error: Date-summarized file not found"
+          exit 1
+        fi
+        
+        echo "Date-wise summarization completed successfully"
+    
+    - name: Run combined summarizer
+      id: combined-summarize
+      if: success() && steps.date-summarize.outcome == 'success'
+      run: |
+        echo "Step 3/3: Creating combined summary"
+        
+        # Verify the input file exists
+        if [ ! -f "public/date_summarized_floorsheet.parquet" ]; then
+          echo "Error: Input file for combined summarizer not found"
+          exit 1
+        fi
+        
+        # Prepare combined summarizer command
+        CMD="python floorsheet_summarizer.py --input public/date_summarized_floorsheet.parquet --output public/summarized_floorsheet.parquet"
+        
+        # Add retention days parameter if provided
+        if [ -n "${{ github.event.inputs.retention_days }}" ]; then
+          CMD="$CMD --retention-days ${{ github.event.inputs.retention_days }}"
+          echo "Data retention set to: ${{ github.event.inputs.retention_days }} days"
+        else
+          CMD="$CMD --retention-days 365"
+          echo "Data retention set to default: 365 days"
+        fi
+        
+        # Run the summarizer
+        echo "Executing combined summarizer: $CMD"
+        $CMD 2>&1 | tee summarizer_output.log
+        
+        # Check if summarization was successful
+        if [ $? -ne 0 ]; then
+          echo "Summarization failed!"
+          exit 1
+        fi
+        
+        # Verify the output file exists
+        if [ ! -f "public/summarized_floorsheet.parquet" ]; then
+          echo "Error: Combined summary file not found"
+          exit 1
+        fi
+        
+        echo "Combined summarization completed successfully"
+        
+        # Print directory contents for debugging
+        echo "Current directory contents:"
+        ls -la
+        echo "public directory contents:"
+        ls -la public || echo "Directory doesn't exist"
+    
+    - name: Commit files to repository
+      id: commit-files
+      if: success() && steps.combined-summarize.outcome == 'success'
+      run: |
+        echo "Committing results to repository"
+        
+        git config --global user.name 'github-actions'
+        git config --global user.email 'github-actions@github.com'
+        
+        # Add all files in the public directory
+        git add public/
+        
+        # Set commit message with date info
+        COMMIT_MSG="Update floorsheet data"
+        if [ -n "${{ github.event.inputs.scrape_date }}" ]; then
+          COMMIT_MSG="$COMMIT_MSG for ${{ github.event.inputs.scrape_date }}"
+        else
+          COMMIT_MSG="$COMMIT_MSG $(date +'%Y-%m-%d')"
+        fi
+        
+        # Add retention policy info to commit message
+        if [ -n "${{ github.event.inputs.retention_days }}" ]; then
+          COMMIT_MSG="$COMMIT_MSG (retention: ${{ github.event.inputs.retention_days }} days)"
+        else
+          COMMIT_MSG="$COMMIT_MSG (retention: 365 days)"
+        fi
+        
+        # Commit and push the changes
+        git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+        git push
+        
+        echo "Files committed and pushed successfully"
+    
+    - name: Upload scraped data
+      id: upload-artifacts
+      if: always() && (steps.download-data.outcome == 'success' || steps.date-summarize.outcome == 'success' || steps.combined-summarize.outcome == 'success')
+      uses: actions/upload-artifact@v4
+      with:
+        name: floorsheet-data
+        path: |
+          public/raw_floorsheet.parquet
+          public/date_summarized_floorsheet.parquet
+          public/summarized_floorsheet.parquet
+        retention-days: 7
+        if-no-files-found: warn
+
+    - name: Summary of pipeline execution
+      if: always()
+      run: |
+        echo "=============================================="
+        echo "PIPELINE EXECUTION SUMMARY"
+        echo "=============================================="
+        echo "Download step: ${steps.download-data.outcome}"
+        echo "Date summarization: ${steps.date-summarize.outcome}"
+        echo "Combined summarization: ${steps.combined-summarize.outcome}"
+        echo "File commit: ${steps.commit-files.outcome}"
+        echo "=============================================="
+        
+        # List all generated files
+        echo "Generated files:"
+        find public -type f -name "*.parquet" | while read file; do
+          if [ -f "$file" ]; then
+            size=$(du -h "$file" | cut -f1)
+            echo "- $file (Size: $size)"
+          fi
+        done
+        echo "=============================================="
