@@ -66,7 +66,7 @@ class FloorsheetSummarizer:
             
             # Process each row in the date-wise summary
             for _, row in df.iterrows():
-                key = (row['broker_id'], row['broker_name'], row['symbol'])
+                key = (row['broker_id'], row['symbol'])  # Using broker_id and symbol as key
                 
                 if key not in broker_stock_aggs:
                     # Initialize new record
